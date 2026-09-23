@@ -134,8 +134,12 @@ class FakeDaemonClient {
   }
 
   public ownedSubscriptions = true;
+  private serverInfoOverride: ReturnType<DaemonClient["getLastServerInfoMessage"]> | undefined;
 
   getLastServerInfoMessage(): ReturnType<DaemonClient["getLastServerInfoMessage"]> {
+    if (this.serverInfoOverride !== undefined) {
+      return this.serverInfoOverride;
+    }
     return {
       status: "server_info",
       serverId: "srv_test",
@@ -143,6 +147,10 @@ class FakeDaemonClient {
       version: "0.8.0",
       features: { ownedSubscriptions: this.ownedSubscriptions },
     };
+  }
+
+  setLastServerInfoMessage(info: ReturnType<DaemonClient["getLastServerInfoMessage"]>): void {
+    this.serverInfoOverride = info;
   }
 
   subscribeConnectionStatus(listener: (status: ConnectionState) => void): () => void {
@@ -2087,6 +2095,74 @@ describe("HostRuntimeStore", () => {
 
     store.syncHosts([]);
     expect(useSessionStore.getState().sessions[host.serverId]).toBeUndefined();
+  });
+
+  it("projects the client's current server info into the session store after reconnect", async () => {
+    const host = makeHost({
+      connections: [{ id: "direct:lan:6767", type: "directTcp", endpoint: "lan:6767" }],
+    });
+    const fakeClient = new FakeDaemonClient();
+    fakeClient.setConnectionState({ status: "connected" });
+    const store = new HostRuntimeStore({
+      deps: {
+        createClient: () => fakeClient as unknown as DaemonClient,
+        connectToDaemon: async ({ host: hostProfile }) => ({
+          client: fakeClient as unknown as DaemonClient,
+          serverId: hostProfile.serverId,
+          hostname: hostProfile.label ?? null,
+        }),
+        getClientId: async () => "cid_test_runtime",
+      },
+    });
+    const sessionStore = useSessionStore.getState();
+    sessionStore.initializeSession(host.serverId, fakeClient as unknown as DaemonClient, 1);
+    sessionStore.updateSessionServerInfo(host.serverId, {
+      serverId: host.serverId,
+      hostname: "test",
+      version: "0.8.0",
+    });
+
+    store.syncHosts([host]);
+    await waitForHostOnline(store, host.serverId);
+
+    // The daemon worker restarts: the transport drops, the client clears its
+    // last server info, and the reconnect delivers the new daemon's info.
+    fakeClient.setLastServerInfoMessage(null);
+    fakeClient.setConnectionState({ status: "disconnected", reason: "transport closed" });
+    expect(useSessionStore.getState().sessions[host.serverId]?.serverInfo?.version).toBe("0.8.0");
+
+    fakeClient.setLastServerInfoMessage({
+      status: "server_info",
+      serverId: host.serverId,
+      hostname: "test",
+      version: "0.9.0",
+      desktopManaged: true,
+      capabilities: {
+        voice: {
+          dictation: { enabled: true, reason: "" },
+          voice: { enabled: false, reason: "" },
+        },
+      },
+      features: { ownedSubscriptions: true, daemonConfigReload: true },
+    });
+    fakeClient.setConnectionState({ status: "connected" });
+
+    expect(useSessionStore.getState().sessions[host.serverId]?.serverInfo).toEqual({
+      serverId: host.serverId,
+      hostname: "test",
+      version: "0.9.0",
+      desktopManaged: true,
+      capabilities: {
+        voice: {
+          dictation: { enabled: true, reason: "" },
+          voice: { enabled: false, reason: "" },
+        },
+      },
+      features: { ownedSubscriptions: true, daemonConfigReload: true },
+    });
+
+    store.syncHosts([]);
+    useSessionStore.getState().clearSession(host.serverId);
   });
 
   it("drains snapshot and buffered running transitions exactly once", async () => {

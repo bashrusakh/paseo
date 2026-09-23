@@ -32,6 +32,7 @@ import { useVoiceAudioEngineOptional, useVoiceRuntimeOptional } from "@/contexts
 import type { AudioPlaybackSource } from "@/voice/audio-engine-types";
 import {
   selectAgentTimelineState,
+  toDaemonServerInfo,
   useSessionStore,
   type SessionState,
 } from "@/stores/session-store";
@@ -324,16 +325,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       return;
     }
 
-    updateSessionServerInfo(serverId, {
-      serverId: serverInfo.serverId,
-      hostname: serverInfo.hostname,
-      version: serverInfo.version,
-      ...(serverInfo.desktopManaged !== undefined
-        ? { desktopManaged: serverInfo.desktopManaged }
-        : {}),
-      ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
-      ...(serverInfo.features ? { features: serverInfo.features } : {}),
-    });
+    updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
   }, [client, serverId, updateSessionServerInfo]);
 
   useEffect(() => {
@@ -568,16 +560,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       if (message.type !== "status") return;
       const serverInfo = parseServerInfoStatusPayload(message.payload);
       if (serverInfo) {
-        updateSessionServerInfo(serverId, {
-          serverId: serverInfo.serverId,
-          hostname: serverInfo.hostname,
-          version: serverInfo.version,
-          ...(serverInfo.desktopManaged !== undefined
-            ? { desktopManaged: serverInfo.desktopManaged }
-            : {}),
-          ...(serverInfo.capabilities ? { capabilities: serverInfo.capabilities } : {}),
-          ...(serverInfo.features ? { features: serverInfo.features } : {}),
-        });
+        updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
         return;
       }
     });

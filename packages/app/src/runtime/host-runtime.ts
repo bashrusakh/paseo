@@ -47,6 +47,7 @@ import { CLIENT_CAPS } from "@getpaseo/protocol/client-capabilities";
 import { BROWSER_AUTOMATION_COMMAND_NAMES } from "@getpaseo/protocol/browser-automation/rpc-schemas";
 import {
   useSessionStore,
+  toDaemonServerInfo,
   type Agent,
   type WorkspaceDescriptor,
   type ProjectDescriptor,
@@ -2119,6 +2120,12 @@ export class HostRuntimeStore {
     const sessionStore = useSessionStore.getState();
     sessionStore.initializeSession(serverId, snapshot.client, snapshot.clientGeneration);
     sessionStore.updateSessionClient(serverId, snapshot.client, snapshot.clientGeneration);
+    // The client clears its last server info while disconnected, so a missing value means
+    // "unknown", not "cleared" — keep the last known projection.
+    const serverInfo = snapshot.client.getLastServerInfoMessage();
+    if (serverInfo) {
+      sessionStore.updateSessionServerInfo(serverId, toDaemonServerInfo(serverInfo));
+    }
   }
 
   private clearHostReplica(serverId: string): void {
